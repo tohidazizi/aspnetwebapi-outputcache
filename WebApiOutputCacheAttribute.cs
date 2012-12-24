@@ -8,7 +8,7 @@ using System.Web.Configuration;
 using System.Web.Http.Controllers;
 using System.Web.Http.Filters;
 
-namespace PointRight.WebAPIs
+namespace WebApi.OutputCache
 {
     public class WebApiOutputCacheAttribute : ActionFilterAttribute
     {
