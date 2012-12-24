@@ -29,6 +29,8 @@ namespace PointRight.WebAPIs
         // assigned OutputCacheProfile
         private OutputCacheProfile _outputCacheProfile;
 
+        private bool? _disabled;
+
         // cache repository
         private static readonly ObjectCache WebApiCache = MemoryCache.Default;
 
@@ -69,22 +71,33 @@ namespace PointRight.WebAPIs
         public int ClientTimeSpan
         {
             get { return _clientTimeSpan; }
-            set { _clientTimeSpan = value; }
+            set
+            {
+                if (value > 0)
+                    _clientTimeSpan = value;
+                else
+                    throw new Exception("ClientTimeSpan should be greater then zero.");
+            }
         }
 
         public int Duration
         {
             get { return _timespan; }
-            set { _timespan = value; }
+            set
+            {
+                _timespan = value;
+                if (_clientTimeSpan == 0)
+                    _clientTimeSpan = _timespan;
+            }
         }
 
-        public bool Enabled
+        public bool Disabled
         {
-            get { throw new NotImplementedException(); }
-            set { throw new NotImplementedException(); }
+            get { return _disabled ?? false; }
+            set { _disabled = value; }
         }
 
-        public bool DisableInDebugMode { get; set; }
+        public bool DisabledInDebugMode { get; set; }
 
         #endregion
 
@@ -104,7 +117,7 @@ namespace PointRight.WebAPIs
                 return;
 
             if (CacheSettingsSection == null)
-                throw new Exception("<outputCacheSettings> has not been found in Web.config. Reveiw your Web.config caching section: system.web//caching//outputCacheSettings");
+                throw new Exception("<outputCacheSettings> has not been found in Web.config. Reveiw Web.config caching section: system.web//caching//outputCacheSettings.");
 
             OutputCacheProfileCollection cacheProfileCollection = CacheSettingsSection.OutputCacheProfiles;
 
@@ -114,42 +127,33 @@ namespace PointRight.WebAPIs
                 if (_timespan == 0)
                     _timespan = _outputCacheProfile.Duration;
                 if (_clientTimeSpan == 0)
-                    _clientTimeSpan = _outputCacheProfile.Duration;
+                    _clientTimeSpan = _timespan;
+                if (!_disabled.HasValue)
+                    _disabled = !_outputCacheProfile.Enabled;
             }
             else
             {
-                throw new Exception(string.Format("No OutputCacheProfile has been found in Web.config with the name of '{0}'. Reveiw your Web.config caching section: system.web//caching//outputCacheSettings", cacheProfileName));
+                throw new Exception(string.Format("No OutputCacheProfile has been found in Web.config with the name of '{0}'. Reveiw Web.config caching section: system.web//caching//outputCacheSettings.", cacheProfileName));
             }
         }
-
-        //private void SetTimeSpan()
-        //{
-        //    if (_outputCacheProfile != null)
-        //    {
-        //        if (_outputCacheProfile.Duration <= 0)
-        //            throw new Exception(string.Format("duration field of OutputCacheProfile '{0}' should be a valid positive integer.", _outputCacheProfile.Name));
-        //        _timespan = _outputCacheProfile.Duration;
-        //    }
-        //    else
-        //    {
-        //        _timespan = int.MaxValue;
-        //    }
-        //}
-
-        private bool CheckDebugModeDisability()
+ 
+        private bool OutputCacheIsDisabled()
         {
-            bool result = false;
+            if (_timespan <= 0)
+                throw new Exception("Duration property of WebApiOutputCacheAttribute should be grater than zero. Reveiw your class attribute or Web.config caching section: system.web//caching//outputCacheSettings.");
+
+            bool disabledBecauseOfDebugMode = false;
 #if DEBUG
-            result = this.DisableInDebugMode;
+            disabledBecauseOfDebugMode = this.DisabledInDebugMode;
 #endif
-            return result;
+            return disabledBecauseOfDebugMode || this.Disabled;
         }
 
         #endregion
 
         public override void OnActionExecuting(HttpActionContext filterContext)
         {
-            if (CheckDebugModeDisability())
+            if (OutputCacheIsDisabled())
                 return;
 
             if (filterContext == null)
@@ -181,7 +185,7 @@ namespace PointRight.WebAPIs
 
         public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
         {
-            if (CheckDebugModeDisability())
+            if (OutputCacheIsDisabled())
                 return;
 
             if (!(WebApiCache.Contains(_cachekey)) && !string.IsNullOrWhiteSpace(_cachekey))
