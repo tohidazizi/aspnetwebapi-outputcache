@@ -85,9 +85,17 @@ namespace WebApi.OutputCache
             get { return _timespan; }
             set
             {
-                _timespan = value;
-                if (_clientTimeSpan == 0)
-                    _clientTimeSpan = _timespan;
+                if (value > 0)
+                {
+                    _timespan = value;
+                    if (_clientTimeSpan == 0)
+                        _clientTimeSpan = _timespan;
+                }
+                else
+                {
+                    throw new Exception("Duration should be greater then zero.",
+                        new Exception("Duration property of WebApiOutputCacheAttribute should be grater than zero. Reveiw the code or Web.config caching section: system.web//caching//outputCacheSettings."));
+                }
             }
         }
 
@@ -98,6 +106,20 @@ namespace WebApi.OutputCache
         }
 
         public bool DisabledInDebugMode { get; set; }
+
+        #endregion
+
+        #region Constructors
+
+        public WebApiOutputCacheAttribute(int duration)
+        {
+            this.Duration = duration;
+        }
+
+        public WebApiOutputCacheAttribute(string cacheProfile)
+        {
+            this.CacheProfile = cacheProfile;
+        }
 
         #endregion
 
@@ -124,24 +146,21 @@ namespace WebApi.OutputCache
             if (cacheProfileCollection.AllKeys.Contains(cacheProfileName))
             {
                 _outputCacheProfile = cacheProfileCollection[cacheProfileName];
-                if (_timespan == 0)
-                    _timespan = _outputCacheProfile.Duration;
-                if (_clientTimeSpan == 0)
-                    _clientTimeSpan = _timespan;
+                if (this.Duration == 0)
+                    this.Duration = _outputCacheProfile.Duration;
+                if (this.ClientTimeSpan == 0)
+                    this.ClientTimeSpan = _outputCacheProfile.Duration;
                 if (!_disabled.HasValue)
-                    _disabled = !_outputCacheProfile.Enabled;
+                    this.Disabled = !_outputCacheProfile.Enabled;
             }
             else
             {
                 throw new Exception(string.Format("No OutputCacheProfile has been found in Web.config with the name of '{0}'. Reveiw Web.config caching section: system.web//caching//outputCacheSettings.", cacheProfileName));
             }
         }
- 
+
         private bool OutputCacheIsDisabled()
         {
-            if (_timespan <= 0)
-                throw new Exception("Duration property of WebApiOutputCacheAttribute should be grater than zero. Reveiw your class attribute or Web.config caching section: system.web//caching//outputCacheSettings.");
-
             bool disabledBecauseOfDebugMode = false;
 #if DEBUG
             disabledBecauseOfDebugMode = this.DisabledInDebugMode;
@@ -151,17 +170,23 @@ namespace WebApi.OutputCache
 
         #endregion
 
-        public override void OnActionExecuting(HttpActionContext filterContext)
+        #region ActionFilterAttribute methods implementation
+
+        public override void OnActionExecuting(HttpActionContext actionContext)
         {
+            if (actionContext == null)
+                throw new ArgumentNullException("filterContext");
+
             if (OutputCacheIsDisabled())
                 return;
 
-            if (filterContext == null)
-                throw new ArgumentNullException("filterContext");
-
-            if (_isCachingTimeValid(_timespan, filterContext, _anonymousOnly))
+            if (_isCachingTimeValid(_timespan, actionContext, _anonymousOnly))
             {
-                _cachekey = string.Join(":", new string[] { filterContext.Request.RequestUri.PathAndQuery, filterContext.Request.Headers.Accept.FirstOrDefault().ToString() });
+                _cachekey = string.Join(":", new string[] {
+                                                actionContext.Request.RequestUri.PathAndQuery, 
+                                                actionContext.Request.Headers.Accept.FirstOrDefault().ToString(),
+                                                Thread.CurrentPrincipal.Identity.IsAuthenticated ? Thread.CurrentPrincipal.Identity.Name : null
+                                             });
 
                 if (WebApiCache.Contains(_cachekey))
                 {
@@ -173,10 +198,10 @@ namespace WebApi.OutputCache
                         if (contenttype == null)
                             contenttype = new MediaTypeHeaderValue(_cachekey.Split(':')[1]);
 
-                        filterContext.Response = filterContext.Request.CreateResponse();
-                        filterContext.Response.Content = new StringContent(val);
+                        actionContext.Response = actionContext.Request.CreateResponse();
+                        actionContext.Response.Content = new StringContent(val);
 
-                        filterContext.Response.Content.Headers.ContentType = contenttype;
+                        actionContext.Response.Content.Headers.ContentType = contenttype;
                         return;
                     }
                 }
@@ -185,6 +210,9 @@ namespace WebApi.OutputCache
 
         public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
         {
+            if (actionExecutedContext == null)
+                throw new ArgumentNullException("actionExecutedContext");
+
             if (OutputCacheIsDisabled())
                 return;
 
@@ -198,5 +226,7 @@ namespace WebApi.OutputCache
             if (_isCachingTimeValid(_clientTimeSpan, actionExecutedContext.ActionContext, _anonymousOnly))
                 actionExecutedContext.ActionContext.Response.Headers.CacheControl = SetClientCache();
         }
+
+        #endregion
     }
 }
